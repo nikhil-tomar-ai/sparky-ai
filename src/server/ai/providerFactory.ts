@@ -45,7 +45,9 @@ export class LLMProviderManager {
     const defaultModel =
       this.providerType === 'gemini'
         ? savedSettings.model || 'gemini-3.8-flash'
-        : savedSettings.model || process.env.OLLAMA_MODEL || 'llama3.1:8b';
+        : savedSettings.model ||
+          process.env.OLLAMA_MODEL ||
+          (this.providerType === 'ollama_cloud' ? 'gemma4:31b-cloud' : 'llama3.1:8b');
 
     this.config = {
       baseUrl: defaultBaseUrl,

@@ -518,7 +518,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     {/* Quick Model Tags */}
                     <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
                       <span className="text-[10px] text-neutral-400">Popular:</span>
-                      {['llama3.1:8b', 'llama3.2:3b', 'llama3.3:70b', 'mistral', 'deepseek-r1:8b', 'qwen2.5:7b'].map((m) => (
+                      {['gemma4:31b-cloud', 'llama3.1:8b', 'llama3.2:3b', 'mistral', 'deepseek-r1:8b', 'qwen2.5:7b'].map((m) => (
                         <button
                           key={m}
                           type="button"
