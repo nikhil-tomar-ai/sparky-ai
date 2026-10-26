@@ -19,7 +19,7 @@ export interface ServerConfig {
   fallbackAiEnabled: boolean;
 }
 
-const rootDir = process.cwd();
+const rootDir = process.env.VERCEL ? '/tmp' : process.cwd();
 
 export const config: ServerConfig = {
   port: parseInt(process.env.PORT || '3000', 10),
