@@ -428,7 +428,7 @@ app.post('/api/humanize-document', async (req: Request, res: Response) => {
     }
 
     const manager = getLLMProviderManager();
-    const provider = await manager.getActiveProviderWithFallback();
+    const provider = manager.getProvider();
 
     let toneInstruction = TONE_SYSTEM_PROMPTS[tone] || TONE_SYSTEM_PROMPTS['conversational'];
     if (tone === 'custom' && customPrompt && customPrompt.trim().length > 0) {
@@ -477,7 +477,7 @@ ${documentContent}
 
 Please rewrite and humanize the entire document now while maintaining matching structure, headings, lists, and formatting.`;
 
-    const aiRes = await generateWithFallback(provider, {
+    const aiRes = await provider.generate({
       prompt: userPrompt,
       systemInstruction,
       temperature: Number(temperature) || 0.7
@@ -495,21 +495,7 @@ Please rewrite and humanize the entire document now while maintaining matching s
     });
   } catch (error: any) {
     console.error('API /api/humanize-document error:', error);
-    try {
-      const emergencyFallback = new FallbackLocalProvider();
-      const content = req.body.content || '';
-      const fallbackRes = await emergencyFallback.generate({ prompt: String(content) });
-      res.json({
-        success: true,
-        title: req.body.title || 'Humanized Document',
-        humanizedMarkdown: fallbackRes.text,
-        modelUsed: fallbackRes.model,
-        providerUsed: fallbackRes.provider,
-        timestamp: new Date().toISOString()
-      });
-    } catch {
-      res.status(500).json({ error: error.message || 'Failed to humanize document' });
-    }
+    res.status(502).json({ error: `AI provider failed: ${error.message || 'unknown error'}` });
   }
 });
 
@@ -537,7 +523,7 @@ app.post('/api/humanize-document-section', async (req: Request, res: Response) =
     }
 
     const manager = getLLMProviderManager();
-    const provider = await manager.getActiveProviderWithFallback();
+    const provider = manager.getProvider();
 
     let toneInstruction = TONE_SYSTEM_PROMPTS[tone] || TONE_SYSTEM_PROMPTS['conversational'];
     if (tone === 'custom' && customPrompt && customPrompt.trim().length > 0) {
@@ -561,7 +547,7 @@ ${sectionContent}
 
 Rewrite and humanize this section:`;
 
-    const aiRes = await generateWithFallback(provider, {
+    const aiRes = await provider.generate({
       prompt,
       systemInstruction,
       temperature: Number(temperature) || 0.7
@@ -583,7 +569,7 @@ Rewrite and humanize this section:`;
     });
   } catch (error: any) {
     console.error('API /api/humanize-document-section error:', error);
-    res.status(500).json({ error: error.message || 'Failed to humanize section' });
+    res.status(502).json({ error: `AI provider failed: ${error.message || 'unknown error'}` });
   }
 });
 
