@@ -28,7 +28,7 @@ export class LocalDatabase {
   private data: LocalDbData;
 
   private constructor() {
-    const dataDir = path.join(process.cwd(), 'data');
+    const dataDir = path.join(process.env.VERCEL ? '/tmp' : process.cwd(), 'data');
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
