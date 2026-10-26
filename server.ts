@@ -6,9 +6,7 @@ import dotenv from 'dotenv';
 import { getLLMProviderManager } from './src/server/ai/providerFactory.js';
 import { FallbackLocalProvider } from './src/server/ai/fallbackProvider.js';
 import { LLMProvider, LLMGenerateOptions, LLMGenerateResult } from './src/server/ai/base.js';
-import { getLocalDb, LocalJobRecord } from './src/server/db/database.js';
-import { getLocalStorage } from './src/server/storage/localFileStorage.js';
-import datasetRouter from './src/server/controllers/datasetController.js';
+import { getLocalDb } from './src/server/db/database.js';
 
 dotenv.config();
 
@@ -22,7 +20,6 @@ const currentDirname = path.dirname(currentFilename);
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
-app.use('/api/datasets', datasetRouter);
 
 const PORT = 3000;
 
@@ -737,136 +734,6 @@ Output ONLY the revised text.`;
     console.error('API /api/quick-edit error:', err);
     res.status(500).json({ error: err.message || 'Failed to apply quick edit' });
   }
-});
-
-/**
- * 5. Local File Uploads & Jobs REST Endpoints
- */
-app.post('/api/uploads', (req: Request, res: Response) => {
-  try {
-    const { filename = 'dataset.csv', content = '', headers = [], totalRows = 0 } = req.body;
-    const storage = getLocalStorage();
-    const db = getLocalDb();
-
-    const saved = storage.saveUploadFile(filename, content);
-    db.saveUpload(saved.id, {
-      filename,
-      originalPath: saved.filePath,
-      headers,
-      totalRows
-    });
-
-    res.json({
-      uploadId: saved.id,
-      filename,
-      filePath: saved.filePath,
-      headers,
-      totalRows
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/uploads/:id', (req: Request, res: Response) => {
-  const db = getLocalDb();
-  const upload = db.getUpload(req.params.id);
-  if (!upload) {
-    res.status(404).json({ error: 'Upload not found' });
-    return;
-  }
-  res.json(upload);
-});
-
-app.post('/api/jobs', (req: Request, res: Response) => {
-  try {
-    const { filename = 'dataset.csv', rows = [], config = {} } = req.body;
-    const db = getLocalDb();
-
-    const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const newJob: LocalJobRecord = {
-      id: jobId,
-      filename,
-      status: 'created',
-      totalRows: rows.length,
-      completedRows: 0,
-      successfulRows: 0,
-      failedRows: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      config,
-      rows,
-      auditLogs: []
-    };
-
-    db.createJob(newJob);
-    res.json({ jobId, job: newJob });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/jobs', (_req: Request, res: Response) => {
-  const db = getLocalDb();
-  res.json({ jobs: db.listJobs() });
-});
-
-app.get('/api/jobs/:id', (req: Request, res: Response) => {
-  const db = getLocalDb();
-  const job = db.getJob(req.params.id);
-  if (!job) {
-    res.status(404).json({ error: 'Job not found' });
-    return;
-  }
-  res.json(job);
-});
-
-app.get('/api/jobs/:id/progress', (req: Request, res: Response) => {
-  const db = getLocalDb();
-  const job = db.getJob(req.params.id);
-  if (!job) {
-    res.status(404).json({ error: 'Job not found' });
-    return;
-  }
-
-  res.json({
-    jobId: job.id,
-    status: job.status,
-    totalRows: job.totalRows,
-    completedRows: job.completedRows,
-    successfulRows: job.successfulRows,
-    failedRows: job.failedRows,
-    progressPercent: job.totalRows > 0 ? Math.round((job.completedRows / job.totalRows) * 100) : 0
-  });
-});
-
-app.get('/api/jobs/:id/download', (req: Request, res: Response) => {
-  const db = getLocalDb();
-  const job = db.getJob(req.params.id);
-  if (!job) {
-    res.status(404).json({ error: 'Job not found' });
-    return;
-  }
-
-  res.json({
-    jobId: job.id,
-    filename: `humanized_${job.filename}`,
-    rows: job.rows
-  });
-});
-
-app.get('/api/jobs/:id/audit', (req: Request, res: Response) => {
-  const db = getLocalDb();
-  const job = db.getJob(req.params.id);
-  if (!job) {
-    res.status(404).json({ error: 'Job not found' });
-    return;
-  }
-
-  res.json({
-    jobId: job.id,
-    auditLogs: job.auditLogs || []
-  });
 });
 
 async function startServer() {
