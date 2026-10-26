@@ -38,26 +38,42 @@ export class OllamaProvider implements LLMProvider {
     const headers = this.getHeaders();
 
     // 0. Cloud endpoints expose /api/version and /api/tags publicly, so they never reject a bad key.
-    // When a key is set, validate it with a minimal authenticated request.
+    // When a key is set, probe the same authenticated endpoints generate() uses. The key is only
+    // treated as invalid when every probed endpoint rejects it (401/403).
     if (this.apiKey) {
-      try {
-        const res = await fetch(`${this.baseUrl}/api/chat`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            model: this.defaultModel,
-            messages: [{ role: 'user', content: 'hi' }],
-            stream: false,
-            options: { num_predict: 1 }
-          }),
-          signal: AbortSignal.timeout(10000)
-        });
-        if (res.status === 401 || res.status === 403) {
-          console.warn(`[OllamaProvider] API key rejected (HTTP ${res.status}).`);
-          return false;
+      const probes: Array<{ path: string; body: Record<string, any> }> = [
+        {
+          path: '/api/generate',
+          body: { model: this.defaultModel, prompt: 'hi', stream: false, options: { num_predict: 1 } }
+        },
+        {
+          path: '/v1/chat/completions',
+          body: { model: this.defaultModel, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }
         }
-      } catch {
-        // Network error: fall through to the reachability probes below
+      ];
+      let rejected = 0;
+      let answered = 0;
+      for (const probe of probes) {
+        try {
+          const res = await fetch(`${this.baseUrl}${probe.path}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(probe.body),
+            signal: AbortSignal.timeout(10000)
+          });
+          answered++;
+          if (res.status === 401 || res.status === 403) {
+            rejected++;
+          } else {
+            break;
+          }
+        } catch {
+          // Network error: try next probe
+        }
+      }
+      if (answered > 0 && rejected === answered) {
+        console.warn('[OllamaProvider] API key rejected by all authenticated endpoints.');
+        return false;
       }
     }
 
