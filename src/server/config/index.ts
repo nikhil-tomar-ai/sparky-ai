@@ -19,7 +19,10 @@ export interface ServerConfig {
   fallbackAiEnabled: boolean;
 }
 
-const rootDir = process.env.VERCEL ? '/tmp' : process.cwd();
+// Serverless platforms (Vercel/Lambda) have a read-only project dir; only /tmp is writable.
+const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.cwd() === '/var/task');
+export const writableRoot = isServerless ? '/tmp' : process.cwd();
+const rootDir = writableRoot;
 
 export const config: ServerConfig = {
   port: parseInt(process.env.PORT || '3000', 10),

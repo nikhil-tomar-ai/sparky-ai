@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { writableRoot } from '../config/index.js';
 
 export interface LocalJobRecord {
   id: string;
@@ -28,7 +29,7 @@ export class LocalDatabase {
   private data: LocalDbData;
 
   private constructor() {
-    const dataDir = path.join(process.env.VERCEL ? '/tmp' : process.cwd(), 'data');
+    const dataDir = path.join(writableRoot, 'data');
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }

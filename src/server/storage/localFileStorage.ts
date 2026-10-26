@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { writableRoot } from '../config/index.js';
 
 export class LocalFileStorage {
   private static instance: LocalFileStorage;
@@ -7,8 +8,8 @@ export class LocalFileStorage {
   private outputsDir: string;
 
   private constructor() {
-    this.uploadsDir = path.join(process.env.VERCEL ? '/tmp' : process.cwd(), 'storage', 'uploads');
-    this.outputsDir = path.join(process.env.VERCEL ? '/tmp' : process.cwd(), 'storage', 'outputs');
+    this.uploadsDir = path.join(writableRoot, 'storage', 'uploads');
+    this.outputsDir = path.join(writableRoot, 'storage', 'outputs');
 
     if (!fs.existsSync(this.uploadsDir)) {
       fs.mkdirSync(this.uploadsDir, { recursive: true });
