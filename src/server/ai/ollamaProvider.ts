@@ -37,6 +37,30 @@ export class OllamaProvider implements LLMProvider {
   async isAvailable(): Promise<boolean> {
     const headers = this.getHeaders();
 
+    // 0. Cloud endpoints expose /api/version and /api/tags publicly, so they never reject a bad key.
+    // When a key is set, validate it with a minimal authenticated request.
+    if (this.apiKey) {
+      try {
+        const res = await fetch(`${this.baseUrl}/api/chat`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: this.defaultModel,
+            messages: [{ role: 'user', content: 'hi' }],
+            stream: false,
+            options: { num_predict: 1 }
+          }),
+          signal: AbortSignal.timeout(10000)
+        });
+        if (res.status === 401 || res.status === 403) {
+          console.warn(`[OllamaProvider] API key rejected (HTTP ${res.status}).`);
+          return false;
+        }
+      } catch {
+        // Network error: fall through to the reachability probes below
+      }
+    }
+
     // 1. Try Ollama native version endpoint
     try {
       const res = await fetch(`${this.baseUrl}/api/version`, {
