@@ -7,6 +7,14 @@ import { getLocalDb } from '../db/database.js';
 
 export type ProviderType = 'gemini' | 'ollama' | 'ollama_cloud' | 'openai_local' | 'fallback';
 
+/** Ollama Cloud can never be on localhost; a localhost URL is a leftover from local config. */
+function cloudBaseUrl(url?: string): string {
+  if (!url || /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(url.trim())) {
+    return 'https://ollama.com';
+  }
+  return url.trim();
+}
+
 export class LLMProviderManager {
   private static instance: LLMProviderManager;
   private currentProvider: LLMProvider;
@@ -43,7 +51,7 @@ export class LLMProviderManager {
       this.providerType === 'gemini'
         ? 'https://generativelanguage.googleapis.com'
         : this.providerType === 'ollama_cloud'
-        ? savedSettings.baseUrl || process.env.OLLAMA_BASE_URL || 'https://ollama.com'
+        ? cloudBaseUrl(savedSettings.baseUrl || process.env.OLLAMA_BASE_URL)
         : savedSettings.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 
     let defaultModel =
@@ -85,7 +93,7 @@ export class LLMProviderManager {
       return new GeminiProvider(model || 'gemini-3.8-flash');
     }
     if (type === 'ollama_cloud') {
-      const cloudUrl = baseUrl || process.env.OLLAMA_BASE_URL || 'https://ollama.com';
+      const cloudUrl = cloudBaseUrl(baseUrl || process.env.OLLAMA_BASE_URL);
       const cloudKey = (apiKey && apiKey.trim().length > 0)
         ? apiKey.trim()
         : (process.env.OLLAMA_API_KEY && process.env.OLLAMA_API_KEY.trim().length > 0)
@@ -149,6 +157,9 @@ export class LLMProviderManager {
     }
     if (newConfig.baseUrl) {
       this.config.baseUrl = newConfig.baseUrl;
+    }
+    if (this.providerType === 'ollama_cloud') {
+      this.config.baseUrl = cloudBaseUrl(this.config.baseUrl);
     }
     if (newConfig.model) {
       this.config.model = newConfig.model;
