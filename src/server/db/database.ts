@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { writableRoot } from '../config/index.js';
+import { writableRoot, isServerless } from '../config/index.js';
 
 export interface LocalJobRecord {
   id: string;
@@ -30,7 +30,8 @@ export class LocalDatabase {
 
   private constructor() {
     const dataDir = path.join(writableRoot, 'data');
-    if (!fs.existsSync(dataDir)) {
+    // Serverless: keep state in memory only, nothing is written to disk.
+    if (!isServerless && !fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
@@ -46,7 +47,7 @@ export class LocalDatabase {
   }
 
   private loadData(): LocalDbData {
-    if (fs.existsSync(this.dbPath)) {
+    if (!isServerless && fs.existsSync(this.dbPath)) {
       try {
         const raw = fs.readFileSync(this.dbPath, 'utf-8');
         return JSON.parse(raw);
@@ -67,6 +68,7 @@ export class LocalDatabase {
   }
 
   private save(): void {
+    if (isServerless) return;
     try {
       fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2), 'utf-8');
     } catch (err) {
