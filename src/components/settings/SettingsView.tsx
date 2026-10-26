@@ -48,7 +48,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [activeSection, setActiveSection] = useState<'provider' | 'processing' | 'csv' | 'appearance' | 'storage'>('provider');
   const [selectedProvider, setSelectedProvider] = useState<string>('ollama_cloud');
   const [ollamaUrl, setOllamaUrl] = useState('https://ollama.com');
-  const [modelInput, setModelInput] = useState('llama3.1:8b');
+  const [modelInput, setModelInput] = useState('gemma4:31b');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
@@ -517,8 +517,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                     {/* Quick Model Tags */}
                     <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
-                      <span className="text-[10px] text-neutral-400">Popular:</span>
-                      {['gemma4:31b-cloud', 'llama3.1:8b', 'llama3.2:3b', 'mistral', 'deepseek-r1:8b', 'qwen2.5:7b'].map((m) => (
+                      <span className="text-[10px] text-neutral-400 font-semibold">Free Cloud Tier:</span>
+                      {[
+                        { id: 'gemma4:31b', label: 'gemma4:31b (Free Tier)' },
+                        { id: 'gemma4:31b-cloud', label: 'gemma4:31b-cloud' },
+                        { id: 'gpt-oss:20b', label: 'gpt-oss:20b' }
+                      ].map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setModelInput(m.id)}
+                          className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                            modelInput === m.id
+                              ? 'bg-blue-600 text-white border-blue-600 font-semibold shadow-2xs'
+                              : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                      <span className="text-[10px] text-neutral-400 ml-1">Other:</span>
+                      {['llama3.1:8b', 'llama3.3:70b', 'mistral'].map((m) => (
                         <button
                           key={m}
                           type="button"

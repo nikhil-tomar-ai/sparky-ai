@@ -31,18 +31,12 @@ import {
   calculateDocumentFleschScore,
   calculateDocumentFluffPercentage
 } from '../utils/documentParser';
-import {
-  exportToDocx,
-  exportToMarkdown,
-  exportToPlainText,
-  exportToHtml,
-  printFormattedDocument,
-  triggerBlobDownload
-} from '../utils/documentExport';
+import { exportToDocx, exportToMarkdown, exportToPlainText, exportToHtml, printFormattedDocument, triggerBlobDownload } from '../utils/documentExport';
 import { api } from '../services/api';
 import { TonePreset } from '../types';
 import { SAMPLE_DOCUMENTS, SampleDocument } from '../data/sampleDocuments';
 import { useToast } from './ui/Toast';
+import { DocumentComparisonModal } from './document/DocumentComparisonModal';
 
 interface DocumentHumanizerProps {
   aiProviderStatus: {
@@ -66,6 +60,11 @@ export const DocumentHumanizer: React.FC<DocumentHumanizerProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [pastedText, setPastedText] = useState('');
   const [showPasteArea, setShowPasteArea] = useState(false);
+
+  // Comparison Pop-up Modal State
+  const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
+  const [isTestingOllama, setIsTestingOllama] = useState(false);
+  const [ollamaTestMessage, setOllamaTestMessage] = useState<string | null>(null);
 
   // Humanizer config
   const [selectedTone, setSelectedTone] = useState<TonePreset>('conversational');
@@ -135,6 +134,35 @@ export const DocumentHumanizer: React.FC<DocumentHumanizerProps> = ({
       message: `"${sample.title}" ready for humanizing.`,
       type: 'info'
     });
+  };
+
+  // Test Ollama Cloud Connection with Key
+  const handleTestOllamaConnection = async () => {
+    setIsTestingOllama(true);
+    setOllamaTestMessage(null);
+    try {
+      const res = await fetch('/api/health/test-ollama', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        setOllamaTestMessage(data.message);
+        addToast({
+          title: 'Ollama Connection Verified',
+          message: data.message,
+          type: 'success'
+        });
+      } else {
+        setOllamaTestMessage(data.message || 'Connection failed');
+        addToast({
+          title: 'Ollama Connection Failed',
+          message: data.message || 'Check your API Key in Settings',
+          type: 'error'
+        });
+      }
+    } catch (e: any) {
+      setOllamaTestMessage(`Network error: ${e.message}`);
+    } finally {
+      setIsTestingOllama(false);
+    }
   };
 
   // Handle file drop / select
@@ -433,21 +461,47 @@ export const DocumentHumanizer: React.FC<DocumentHumanizerProps> = ({
           </div>
         </div>
 
-        {/* Local LLM Active Engine Indicator */}
-        <div className="flex items-center gap-2 self-start md:self-auto bg-neutral-100 dark:bg-[#181c24] px-3.5 py-2 rounded-xl border border-neutral-200 dark:border-neutral-800 text-xs">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-neutral-500 dark:text-neutral-400">Local Engine:</span>
-          <span className="font-semibold text-neutral-800 dark:text-neutral-200">
-            {aiProviderStatus.model || 'Local LLM / Fallback'}
-          </span>
-          {onOpenSettings && (
+        {/* Local / Cloud LLM Active Engine Indicator & Comparison Trigger */}
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto text-xs">
+          {parsedDoc && (
             <button
-              onClick={onOpenSettings}
-              className="text-blue-600 hover:text-blue-700 dark:text-blue-400 underline ml-1 cursor-pointer font-medium"
+              onClick={() => setIsComparisonModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-xs transition cursor-pointer"
             >
-              Config
+              <Split className="w-3.5 h-3.5" />
+              <span>Comparison Pop-up</span>
+              {humanizedMarkdown && (
+                <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+              )}
             </button>
           )}
+
+          <div className="flex items-center gap-2 bg-neutral-100 dark:bg-[#181c24] px-3.5 py-2 rounded-xl border border-neutral-200 dark:border-neutral-800">
+            <div className={`w-2 h-2 rounded-full ${aiProviderStatus.status === 'error' ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'}`} />
+            <span className="text-neutral-500 dark:text-neutral-400">AI Engine:</span>
+            <span className="font-semibold text-neutral-800 dark:text-neutral-200">
+              {aiProviderStatus.model || 'Ollama Cloud (gemma4:31b)'}
+            </span>
+
+            <button
+              onClick={handleTestOllamaConnection}
+              disabled={isTestingOllama}
+              title="Test Ollama Cloud connection with your API key"
+              className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-semibold flex items-center gap-1 ml-1 cursor-pointer"
+            >
+              <RefreshCw className={`w-3 h-3 ${isTestingOllama ? 'animate-spin' : ''}`} />
+              <span>{isTestingOllama ? 'Testing...' : 'Check Key'}</span>
+            </button>
+
+            {onOpenSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="text-blue-600 hover:text-blue-700 dark:text-blue-400 underline ml-0.5 cursor-pointer font-medium"
+              >
+                Config
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -883,6 +937,25 @@ export const DocumentHumanizer: React.FC<DocumentHumanizerProps> = ({
 
             {/* Download & Copy Menu */}
             <div className="flex items-center gap-2 relative">
+              {/* Dedicated Comparison Pop-up Window Trigger */}
+              <button
+                type="button"
+                disabled={!parsedDoc}
+                onClick={() => setIsComparisonModalOpen(true)}
+                title="Open interactive side-by-side comparison in dedicated pop-up modal"
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                  !parsedDoc
+                    ? 'opacity-40 cursor-not-allowed border-neutral-200 dark:border-neutral-800 text-neutral-400'
+                    : 'border-blue-600/40 bg-blue-50/80 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 shadow-2xs'
+                }`}
+              >
+                <Split className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>Compare Pop-up</span>
+                {humanizedMarkdown && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                )}
+              </button>
+
               <button
                 type="button"
                 disabled={!humanizedMarkdown}
@@ -1194,6 +1267,16 @@ export const DocumentHumanizer: React.FC<DocumentHumanizerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Interactive Comparison Pop-up Modal */}
+      <DocumentComparisonModal
+        isOpen={isComparisonModalOpen}
+        onClose={() => setIsComparisonModalOpen(false)}
+        document={parsedDoc}
+        humanizedMarkdown={humanizedMarkdown}
+        selectedTone={selectedTone}
+        sectionRewrites={sectionRewrites}
+      />
     </div>
   );
 };
