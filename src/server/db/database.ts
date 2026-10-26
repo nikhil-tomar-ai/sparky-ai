@@ -5,12 +5,8 @@
  */
 export class LocalDatabase {
   private static instance: LocalDatabase;
-  private settings: Record<string, any> = {
-    provider: 'ollama',
-    baseUrl: 'http://localhost:11434',
-    model: 'llama3.2',
-    temperature: 0.7
-  };
+  // Empty by default so environment variables (LLM_PROVIDER, OLLAMA_API_KEY, ...) apply.
+  private settings: Record<string, any> = {};
 
   public static getInstance(): LocalDatabase {
     if (!LocalDatabase.instance) {
