@@ -12,13 +12,9 @@ import { SplitComparisonView } from './components/results/SplitComparisonView';
 import { AuditLogView } from './components/AuditLogView';
 import { SettingsView } from './components/settings/SettingsView';
 import { SchemaValidationModal } from './components/SchemaValidationModal';
-import { DatasetUploadCard } from './components/DatasetUploadCard';
-import { DatasetPreviewTable } from './components/DatasetPreviewTable';
-import { ColumnAnalysisView } from './components/ColumnAnalysisView';
 import { DocumentHumanizer } from './components/DocumentHumanizer';
 import { useToast } from './components/ui/Toast';
-import { api, DatasetSummary, UploadDatasetResult } from './services/api';
-import { ColumnAnalysis, ProcessingRow } from './server/types/models';
+import { DatasetSummary } from './services/api';
 import { Table, BarChart2, ArrowRight, UploadCloud, FileSpreadsheet, Download, RefreshCw } from 'lucide-react';
 
 import {
@@ -50,18 +46,6 @@ export default function App() {
   const [activeFileName, setActiveFileName] = useState<string | null>(null);
   const [rows, setRows] = useState<BlogRow[]>([]);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
-
-  // Ingested Datasets State
-  const [datasetList, setDatasetList] = useState<DatasetSummary[]>([]);
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
-  const [selectedDatasetName, setSelectedDatasetName] = useState<string>('');
-  const [datasetColumns, setDatasetColumns] = useState<ColumnAnalysis[]>([]);
-  const [previewRows, setPreviewRows] = useState<ProcessingRow[]>([]);
-  const [previewPage, setPreviewPage] = useState<number>(1);
-  const [previewTotalPages, setPreviewTotalPages] = useState<number>(1);
-  const [previewTotalRows, setPreviewTotalRows] = useState<number>(0);
-  const [isPreviewLoading, setIsPreviewLoading] = useState<boolean>(false);
-  const [previewSubTab, setPreviewSubTab] = useState<'table' | 'analysis'>('table');
 
   // AI Provider Status
   const [aiProviderStatus, setAiProviderStatus] = useState<{
@@ -151,82 +135,9 @@ export default function App() {
     }
   };
 
-  const refreshDatasetList = async () => {
-    try {
-      const res = await api.getDatasets(1, 50);
-      if (res && res.datasets) {
-        setDatasetList(res.datasets);
-        if (res.datasets.length > 0 && !selectedDatasetId) {
-          loadDataset(res.datasets[0].id, 1);
-        }
-      }
-    } catch (err) {
-      console.warn('Could not load datasets from server:', err);
-    }
-  };
-
   useEffect(() => {
-    refreshDatasetList();
     refreshAiStatus();
   }, []);
-
-  const loadDataset = async (datasetId: string, page = 1) => {
-    setIsPreviewLoading(true);
-    setSelectedDatasetId(datasetId);
-    setPreviewPage(page);
-
-    try {
-      const [details, colRes, rowRes] = await Promise.all([
-        api.getDataset(datasetId),
-        api.getDatasetColumns(datasetId),
-        api.getDatasetRows(datasetId, page, 50)
-      ]);
-
-      setSelectedDatasetName(details.originalFileName);
-      setDatasetColumns(colRes.columns || []);
-      setPreviewRows(rowRes.rows || []);
-      setPreviewTotalRows(rowRes.pagination.totalRows);
-      setPreviewTotalPages(rowRes.pagination.totalPages);
-    } catch (err) {
-      console.error('Failed to load dataset details:', err);
-      addToast('error', 'Failed to load dataset details');
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  };
-
-  const handlePageChange = (newPage: number) => {
-    if (selectedDatasetId && newPage >= 1 && newPage <= previewTotalPages) {
-      loadDataset(selectedDatasetId, newPage);
-    }
-  };
-
-  const handleUploadSuccess = async (result: UploadDatasetResult) => {
-    addToast('success', `Dataset ingested: ${(result?.totalRows || 0).toLocaleString()} rows ready`);
-    await refreshDatasetList();
-    await loadDataset(result.datasetId, 1);
-  };
-
-  const handleImportIntoWorkspace = () => {
-    if (previewRows.length === 0 || datasetColumns.length === 0) return;
-
-    const contentCol =
-      datasetColumns.find((c) => c.recommendedForProcessing && c.inferredType === 'LONG_TEXT')?.originalName ||
-      datasetColumns.find((c) => c.recommendedForProcessing)?.originalName ||
-      datasetColumns[0].originalName;
-
-    const titleCol =
-      datasetColumns.find((c) => /title|headline/i.test(c.originalName))?.originalName ||
-      datasetColumns[0].originalName;
-
-    const authorCol =
-      datasetColumns.find((c) => /author|creator|writer/i.test(c.originalName))?.originalName || '';
-
-    const records = previewRows.map((r) => r.originalData);
-    handleLoadRows(records, selectedDatasetName, contentCol, titleCol, authorCol);
-    setActiveTab('workspace');
-    addToast('info', `Loaded ${records.length} records into AI Workspace`);
-  };
 
   const handleLoadRows = (
     records: Record<string, string>[],
@@ -728,7 +639,7 @@ export default function App() {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         aiProviderStatus={aiProviderStatus}
-        datasetsCount={datasetList.length}
+        datasetsCount={0}
         loadedRowsCount={rows.length}
         processedRowsCount={
           rows.filter((r) => r.status === 'humanized' || r.status === 'edited').length
@@ -741,10 +652,10 @@ export default function App() {
         {/* Contextual Header */}
         <Header
           activeTab={activeTab}
-          datasetName={selectedDatasetName || activeFileName}
-          datasetList={datasetList}
-          selectedDatasetId={selectedDatasetId}
-          onSelectDataset={(id) => loadDataset(id, 1)}
+          datasetName={activeFileName}
+          datasetList={[]}
+          selectedDatasetId={null}
+          onSelectDataset={() => {}}
           onExportCSV={handleExportCSV}
           onUploadClick={() => fileInputRef.current?.click()}
         />
@@ -754,7 +665,7 @@ export default function App() {
           {/* 1. DASHBOARD OVERVIEW */}
           {activeTab === 'dashboard' && (
             <DashboardOverview
-              datasets={datasetList}
+              datasets={[]}
               loadedRowsCount={rows.length}
               processedRowsCount={
                 rows.filter((r) => r.status === 'humanized' || r.status === 'edited').length
@@ -762,10 +673,6 @@ export default function App() {
               failedRowsCount={rows.filter((r) => r.status === 'failed').length}
               onNavigate={(tab) => setActiveTab(tab as ViewTab)}
               onNavigateTab={(tab) => setActiveTab(tab as ViewTab)}
-              onSelectDataset={(id) => {
-                loadDataset(id, 1);
-                setActiveTab('datasets');
-              }}
               onUploadClick={() => {
                 setActiveTab('datasets');
               }}
@@ -797,85 +704,16 @@ export default function App() {
 
           {/* 2. DATASETS & INGESTION TAB */}
           {activeTab === 'datasets' && (
-            <div className="max-w-6xl mx-auto space-y-6">
-              {/* Dataset Actions Bar */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white dark:bg-[#15181e] border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-xs">
-                <div>
-                  <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                    Dataset Ingestion & Schema Inspection
-                  </h2>
-                  <p className="text-xs text-neutral-500 font-mono mt-0.5">
-                    Stream, parse, and analyze CSV records with 100% schema preservation and zero data loss.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {selectedDatasetId && previewRows.length > 0 && (
-                    <button
-                      onClick={handleImportIntoWorkspace}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5"
-                    >
-                      <span>Load into AI Workspace</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
+            <div className="max-w-3xl mx-auto py-6">
+              <div className="text-center mb-6">
+                <h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
+                  Load CSV Dataset
+                </h2>
+                <p className="text-xs text-neutral-500 max-w-md mx-auto mt-1">
+                  Files are parsed in your browser and never stored on the server.
+                </p>
               </div>
-
-              {/* Upload Card */}
-              <DatasetUploadCard onUploadSuccess={handleUploadSuccess} />
-
-              {/* Ingestion Sub-Tabs & View Content */}
-              {selectedDatasetId && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-800 pb-2">
-                    <button
-                      onClick={() => setPreviewSubTab('table')}
-                      className={`flex items-center gap-1.5 text-xs font-medium py-1.5 px-3 rounded-lg transition-colors ${
-                        previewSubTab === 'table'
-                          ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-semibold'
-                          : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      <Table className="w-3.5 h-3.5" />
-                      <span>Data Rows Preview ({(previewTotalRows || 0).toLocaleString()})</span>
-                    </button>
-
-                    <button
-                      onClick={() => setPreviewSubTab('analysis')}
-                      className={`flex items-center gap-1.5 text-xs font-medium py-1.5 px-3 rounded-lg transition-colors ${
-                        previewSubTab === 'analysis'
-                          ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 font-semibold'
-                          : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      <BarChart2 className="w-3.5 h-3.5" />
-                      <span>Column Analysis ({datasetColumns.length})</span>
-                    </button>
-                  </div>
-
-                  {previewSubTab === 'table' ? (
-                    <DatasetPreviewTable
-                      datasetName={selectedDatasetName}
-                      totalRows={previewTotalRows}
-                      totalColumns={datasetColumns.length}
-                      columns={datasetColumns}
-                      rows={previewRows}
-                      currentPage={previewPage}
-                      pageSize={50}
-                      totalPages={previewTotalPages}
-                      isLoading={isPreviewLoading}
-                      onPageChange={handlePageChange}
-                    />
-                  ) : (
-                    <ColumnAnalysisView
-                      columns={datasetColumns}
-                      datasetName={selectedDatasetName}
-                      totalRows={previewTotalRows}
-                    />
-                  )}
-                </div>
-              )}
+              <UploadSection onLoadRows={handleLoadRows} fileInputRef={fileInputRef} />
             </div>
           )}
 
