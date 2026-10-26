@@ -33,7 +33,11 @@ export class LLMProviderManager {
 
     this.providerType = defaultProvider;
 
-    const apiKey = savedSettings.apiKey || process.env.OLLAMA_API_KEY || undefined;
+    const apiKey = (savedSettings.apiKey && savedSettings.apiKey.trim().length > 0)
+      ? savedSettings.apiKey.trim()
+      : (process.env.OLLAMA_API_KEY && process.env.OLLAMA_API_KEY.trim().length > 0)
+      ? process.env.OLLAMA_API_KEY.trim()
+      : undefined;
 
     const defaultBaseUrl =
       this.providerType === 'gemini'
@@ -42,12 +46,17 @@ export class LLMProviderManager {
         ? savedSettings.baseUrl || process.env.OLLAMA_BASE_URL || 'https://ollama.com'
         : savedSettings.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 
-    const defaultModel =
+    let defaultModel =
       this.providerType === 'gemini'
         ? savedSettings.model || 'gemini-3.8-flash'
         : savedSettings.model ||
           process.env.OLLAMA_MODEL ||
           (this.providerType === 'ollama_cloud' ? 'gemma4:31b-cloud' : 'llama3.1:8b');
+
+    // llama3.1:8b is not available on the Ollama Cloud free plan
+    if (this.providerType === 'ollama_cloud' && (!defaultModel || defaultModel === 'llama3.1:8b')) {
+      defaultModel = 'gemma4:31b-cloud';
+    }
 
     this.config = {
       baseUrl: defaultBaseUrl,
@@ -77,8 +86,13 @@ export class LLMProviderManager {
     }
     if (type === 'ollama_cloud') {
       const cloudUrl = baseUrl || process.env.OLLAMA_BASE_URL || 'https://ollama.com';
-      const cloudKey = apiKey || process.env.OLLAMA_API_KEY || undefined;
-      return new OllamaProvider(cloudUrl, model || 'llama3.1:8b', cloudKey, 'Ollama Cloud', 'ollama_cloud');
+      const cloudKey = (apiKey && apiKey.trim().length > 0)
+        ? apiKey.trim()
+        : (process.env.OLLAMA_API_KEY && process.env.OLLAMA_API_KEY.trim().length > 0)
+        ? process.env.OLLAMA_API_KEY.trim()
+        : undefined;
+      const cloudModel = (model && model !== 'llama3.1:8b') ? model : 'gemma4:31b';
+      return new OllamaProvider(cloudUrl, cloudModel, cloudKey, 'Ollama Cloud', 'ollama_cloud');
     }
     if (type === 'openai_local') {
       return new OpenAILocalProvider(baseUrl || 'http://localhost:1234/v1', model || 'local-model');

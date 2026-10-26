@@ -124,6 +124,7 @@ export class OllamaProvider implements LLMProvider {
 
   async listModels(): Promise<string[]> {
     const headers = this.getHeaders();
+    let models: string[] = [];
 
     // 1. Try standard Ollama /api/tags
     try {
@@ -135,8 +136,7 @@ export class OllamaProvider implements LLMProvider {
       if (res.ok) {
         const data = (await res.json()) as { models?: Array<{ name?: string; model?: string }> };
         if (data.models && Array.isArray(data.models) && data.models.length > 0) {
-          const models = data.models.map((m) => m.name || m.model || '').filter(Boolean);
-          if (models.length > 0) return models;
+          models = data.models.map((m) => m.name || m.model || '').filter(Boolean);
         }
       }
     } catch {
@@ -144,29 +144,59 @@ export class OllamaProvider implements LLMProvider {
     }
 
     // 2. Try OpenAI compatible /v1/models if tags wasn't available
-    try {
-      const res = await fetch(`${this.baseUrl}/v1/models`, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(4000)
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { data?: Array<{ id?: string }> };
-        if (data.data && Array.isArray(data.data) && data.data.length > 0) {
-          const models = data.data.map((m) => m.id || '').filter(Boolean);
-          if (models.length > 0) return models;
+    if (models.length === 0) {
+      try {
+        const res = await fetch(`${this.baseUrl}/v1/models`, {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(4000)
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { data?: Array<{ id?: string }> };
+          if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+            models = data.data.map((m) => m.id || '').filter(Boolean);
+          }
         }
+      } catch {
+        // Return default model
       }
-    } catch {
-      // Return default model
     }
 
-    return [this.defaultModel];
+    if (models.length === 0) {
+      models = [this.defaultModel];
+    }
+
+    // If on Ollama Cloud, prioritize verified Free Plan models first
+    if (this.baseUrl.includes('ollama.com')) {
+      const freeModels = ['gemma4:31b', 'gemma4:31b-cloud', 'gpt-oss:20b'];
+      const reordered = [
+        ...freeModels.filter(m => models.includes(m)),
+        ...models.filter(m => !freeModels.includes(m))
+      ];
+      return reordered.length > 0 ? reordered : freeModels;
+    }
+
+    return models;
   }
 
   async generate(options: LLMGenerateOptions): Promise<LLMGenerateResult> {
-    const model = options.model || this.defaultModel;
+    let model = options.model || this.defaultModel;
+
+    // If on Ollama Cloud and model is llama3.1:8b (not in free tier), auto-select gemma4:31b
+    if (this.baseUrl.includes('ollama.com') && (model === 'llama3.1:8b' || !model)) {
+      model = 'gemma4:31b';
+    }
+
     const headers = this.getHeaders();
+
+    // Prefer chat endpoint on Ollama Cloud for best prompt formatting and model support
+    if (this.baseUrl.includes('ollama.com')) {
+      try {
+        return await this.generateViaChat(options, model, headers);
+      } catch (chatErr: any) {
+        console.warn(`[Ollama Cloud] /api/chat attempted with ${model}: ${chatErr.message}. Falling back to /api/generate...`);
+      }
+    }
 
     // Payload for native Ollama /api/generate
     const payload: Record<string, any> = {
@@ -196,20 +226,31 @@ export class OllamaProvider implements LLMProvider {
 
       if (response.ok) {
         const data = (await response.json()) as { response?: string; eval_count?: number };
+        const cleanText = this.sanitizeOutput(data.response || '');
         return {
-          text: data.response || '',
+          text: cleanText,
           model,
           provider: this.id,
           tokensUsed: data.eval_count || 0
         };
       }
 
+      const errText = await response.text();
+
       // If HTTP 401 or 403, throw clear auth error
       if (response.status === 401 || response.status === 403) {
-        const errText = await response.text();
         throw new Error(
-          `Ollama Cloud Authentication Failed (${response.status}): Invalid or unauthorized API Key. Please update your API Key in Settings. Details: ${errText}`
+          `Ollama Cloud Authentication Failed (${response.status}): Invalid or unauthorized API Key. Please update your API Key in Settings.`
         );
+      }
+
+      // If model not in Free plan (HTTP 402 or 404), auto-retry with free cloud model gemma4:31b
+      if (
+        (response.status === 402 || response.status === 404 || errText.includes('Free plan') || errText.includes('gemma4:31b-cloud')) &&
+        model !== 'gemma4:31b'
+      ) {
+        console.warn(`[Ollama Cloud] Model ${model} not available on Free tier. Auto-switching to gemma4:31b...`);
+        return await this.generateViaChat(options, 'gemma4:31b', headers);
       }
 
       // If /api/generate gave 404, attempt fallback to /api/chat
@@ -217,23 +258,30 @@ export class OllamaProvider implements LLMProvider {
         return await this.generateViaChat(options, model, headers);
       }
 
-      const errText = await response.text();
       throw new Error(`Ollama Cloud API error (${response.status}): ${errText}`);
     } catch (err: any) {
       if (err.message?.includes('Authentication Failed')) {
         throw err;
       }
-      // If error was fetch failure, check if /api/chat or OpenAI compatibility works
+      // Attempt chat fallback
       try {
         return await this.generateViaChat(options, model, headers);
-      } catch {
-        throw new Error(`${this.name} execution failed: ${err.message}`);
+      } catch (fallbackErr: any) {
+        throw new Error(`${this.name} execution failed: ${err.message || fallbackErr.message}`);
       }
     }
   }
 
   /**
-   * Fallback generation via /api/chat or /v1/chat/completions for endpoints that only support chat
+   * Strips internal model reasoning (<think>...</think>) and leading markdown fences if present
+   */
+  private sanitizeOutput(text: string): string {
+    let clean = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    return clean;
+  }
+
+  /**
+   * Generation via /api/chat or /v1/chat/completions
    */
   private async generateViaChat(
     options: LLMGenerateOptions,
@@ -265,15 +313,39 @@ export class OllamaProvider implements LLMProvider {
 
       if (chatRes.ok) {
         const data = (await chatRes.json()) as { message?: { content?: string }; eval_count?: number };
+        const cleanText = this.sanitizeOutput(data.message?.content || '');
         return {
-          text: data.message?.content || '',
+          text: cleanText,
           model,
           provider: this.id,
           tokensUsed: data.eval_count || 0
         };
       }
-    } catch {
-      // Continue to OpenAI style
+
+      const errText = await chatRes.text();
+
+      // Free plan recovery in chat:
+      if (
+        (chatRes.status === 402 || chatRes.status === 404 || errText.includes('Free plan') || errText.includes('gemma4:31b-cloud')) &&
+        model !== 'gemma4:31b'
+      ) {
+        console.warn(`[Ollama Cloud Chat] Switching to free plan model gemma4:31b...`);
+        return await this.generateViaChat(options, 'gemma4:31b', headers);
+      }
+
+      if (chatRes.status === 401 || chatRes.status === 403) {
+        throw new Error(`Ollama Cloud Authentication Failed (${chatRes.status}): Invalid API Key.`);
+      }
+
+      throw new Error(`Cloud chat API error (${chatRes.status}): ${errText}`);
+    } catch (chatError: any) {
+      if (chatError.message?.includes('Authentication Failed')) {
+        throw chatError;
+      }
+      // If error was free plan recovery, propagate
+      if (chatError.message?.includes('gemma4:31b')) {
+        throw chatError;
+      }
     }
 
     // Try /v1/chat/completions (OpenAI compatible proxy format)
@@ -297,8 +369,9 @@ export class OllamaProvider implements LLMProvider {
       choices?: Array<{ message?: { content?: string } }>;
       usage?: { total_tokens?: number };
     };
+    const cleanText = this.sanitizeOutput(data.choices?.[0]?.message?.content || '');
     return {
-      text: data.choices?.[0]?.message?.content || '',
+      text: cleanText,
       model,
       provider: this.id,
       tokensUsed: data.usage?.total_tokens || 0

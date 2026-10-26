@@ -475,7 +475,8 @@ ORIGINAL DOCUMENT:
 ${documentContent}
 """
 
-Please rewrite and humanize the entire document now while maintaining matching structure, headings, lists, and formatting.`;
+Please rewrite and humanize the entire document now while maintaining matching structure, headings, lists, and formatting.
+CRITICAL: Do NOT return identical or verbatim text. Substantially rewrite the phrasing, rhythm, vocabulary, and cadence into authentic human writing.`;
 
     const aiRes = await provider.generate({
       prompt: userPrompt,
@@ -483,7 +484,12 @@ Please rewrite and humanize the entire document now while maintaining matching s
       temperature: Number(temperature) || 0.7
     });
 
-    const humanizedText = aiRes.text ? aiRes.text.trim() : documentContent;
+    let humanizedText = aiRes.text ? aiRes.text.trim() : '';
+    // Safeguard: if LLM returned empty or identical text, apply rule-based humanization
+    if (!humanizedText || humanizedText === documentContent) {
+      const fallback = new FallbackLocalProvider();
+      humanizedText = fallback.humanizeTextLocally(documentContent);
+    }
 
     res.json({
       success: true,
@@ -537,7 +543,7 @@ Rewrite this section with an authentic human voice, removing all robotic AI mark
 Keep the heading and any bullet points or formatting properly structured in Markdown.
 Tone: ${toneInstruction}.
 Intensity: ${intensity}.
-Output ONLY the rewritten section in Markdown.`;
+Output ONLY the rewritten section in Markdown. Do not repeat sentences verbatim.`;
 
     const prompt = `Section Heading: ${headingPrefix}${sectionHeading}
 Original Content:
@@ -553,7 +559,13 @@ Rewrite and humanize this section:`;
       temperature: Number(temperature) || 0.7
     });
 
-    let rewritten = aiRes.text ? aiRes.text.trim() : sectionContent;
+    let rewritten = aiRes.text ? aiRes.text.trim() : '';
+
+    // Safeguard: if LLM returned empty or identical text, apply rule-based humanization
+    if (!rewritten || rewritten === sectionContent) {
+      const fallback = new FallbackLocalProvider();
+      rewritten = fallback.humanizeTextLocally(sectionContent);
+    }
 
     // Ensure heading is present if section has heading
     if (sectionHeading && !rewritten.includes(sectionHeading) && !rewritten.startsWith('#')) {
@@ -570,6 +582,58 @@ Rewrite and humanize this section:`;
   } catch (error: any) {
     console.error('API /api/humanize-document-section error:', error);
     res.status(502).json({ error: `AI provider failed: ${error.message || 'unknown error'}` });
+  }
+});
+
+/**
+ * 3.3 Live Ollama Cloud Diagnostic Test Endpoint
+ */
+app.post('/api/health/test-ollama', async (_req: Request, res: Response) => {
+  const startTime = Date.now();
+  try {
+    const manager = getLLMProviderManager();
+    const config = manager.getConfig();
+    const provider = manager.getProvider();
+
+    const isConnected = await provider.isAvailable();
+    const latencyMs = Date.now() - startTime;
+
+    if (!isConnected) {
+      res.json({
+        ok: false,
+        latencyMs,
+        provider: config.providerType,
+        model: config.model,
+        hasApiKey: config.hasApiKey,
+        maskedApiKey: config.maskedApiKey,
+        message: 'Could not connect to Ollama host. Check Base URL and API key.'
+      });
+      return;
+    }
+
+    // Attempt a quick test generation
+    const testGen = await provider.generate({
+      prompt: 'Respond with exactly: Ollama connection verified.',
+      temperature: 0.1
+    });
+
+    res.json({
+      ok: true,
+      latencyMs: Date.now() - startTime,
+      provider: config.providerType,
+      model: testGen.model || config.model,
+      hasApiKey: config.hasApiKey,
+      maskedApiKey: config.maskedApiKey,
+      sampleResponse: testGen.text?.slice(0, 100),
+      message: `Connected successfully to Ollama Cloud (${testGen.model}) in ${latencyMs}ms!`
+    });
+  } catch (err: any) {
+    res.json({
+      ok: false,
+      latencyMs: Date.now() - startTime,
+      error: err.message,
+      message: `Ollama test failed: ${err.message}`
+    });
   }
 });
 
